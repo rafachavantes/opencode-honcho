@@ -5,6 +5,7 @@ import { tool, type Plugin, type PluginInput } from "@opencode-ai/plugin"
 import { Honcho } from "@honcho-ai/sdk"
 
 type RecallMode = "hybrid" | "context" | "tools"
+type ContextScope = "global" | "session"
 type SessionStrategy = "per-repo" | "per-directory" | "per-session" | "global" | "git-branch" | "chat-instance"
 type DialecticReasoningLevel = "minimal" | "low" | "medium" | "high" | "max"
 type ContextRefreshSettings = {
@@ -26,9 +27,11 @@ type HonchoSettings = {
   workspace: string
   recallMode: RecallMode
   sessionStrategy: SessionStrategy
+  contextScope: ContextScope
+  sessionStartDialectic: boolean
 }
 
-type HostScopedSettings = Partial<Pick<HonchoSettings, "workspace" | "aiPeer" | "recallMode" | "sessionStrategy">>
+type HostScopedSettings = Partial<Pick<HonchoSettings, "workspace" | "aiPeer" | "recallMode" | "sessionStrategy" | "contextScope" | "sessionStartDialectic">>
 
 type RuntimeHandle = {
   rootDir: string
@@ -108,6 +111,8 @@ const DEFAULT_SETTINGS: HonchoSettings = {
   workspace: "opencode",
   recallMode: "hybrid",
   sessionStrategy: "per-directory",
+  contextScope: "global",
+  sessionStartDialectic: true,
 }
 
 const INTERNAL_DIALECTIC_REASONING_LEVEL: DialecticReasoningLevel = "low"
@@ -121,19 +126,20 @@ const INTERNAL_CONTEXT_REFRESH: ContextRefreshSettings = {
   useSessionStartDialectic: true,
 }
 
-const BOOLEAN_KEYS = new Set<keyof HonchoSettings>([])
+const BOOLEAN_KEYS = new Set<keyof HonchoSettings>(["sessionStartDialectic"])
 
 const NUMBER_KEYS = new Set<keyof HonchoSettings>([])
 
 const ENUM_KEYS: Record<string, ReadonlySet<string>> = {
   recallMode: new Set(["hybrid", "context", "tools"]),
   sessionStrategy: new Set(["per-repo", "per-directory", "per-session", "global", "git-branch", "chat-instance"]),
+  contextScope: new Set(["global", "session"]),
 }
 
 const INHERITABLE_STRING_KEYS = new Set<keyof HonchoSettings>(["apiKey", "baseUrl", "peerName", "aiPeer", "workspace"])
 
 const TOP_LEVEL_SETTING_FIELDS = new Set<keyof HonchoSettings>(["apiKey", "baseUrl", "peerName"])
-const HOST_SETTING_FIELDS = new Set<keyof HonchoSettings>(["workspace", "aiPeer", "recallMode", "sessionStrategy"])
+const HOST_SETTING_FIELDS = new Set<keyof HonchoSettings>(["workspace", "aiPeer", "recallMode", "sessionStrategy", "contextScope", "sessionStartDialectic"])
 
 const SETTING_FIELD_PATHS = new Set([
   "apiKey",
@@ -143,6 +149,8 @@ const SETTING_FIELD_PATHS = new Set([
   "workspace",
   "recallMode",
   "sessionStrategy",
+  "contextScope",
+  "sessionStartDialectic",
 ])
 
 const DURABLE_PATTERNS = [
@@ -1679,5 +1687,7 @@ export const __testing = {
   extractSessionId,
   normalizeId,
   sessionPeerAdditions,
+  parseSettingValue,
+  setSettingValue,
 }
 export default HonchoRuntimePlugin
