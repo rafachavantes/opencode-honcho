@@ -6,6 +6,7 @@ import { Honcho } from "@honcho-ai/sdk"
 
 type RecallMode = "hybrid" | "context" | "tools"
 type ContextScope = "global" | "session"
+type SessionNaming = "opencode" | "shared"
 type SessionStrategy = "per-repo" | "per-directory" | "per-session" | "global" | "git-branch" | "chat-instance"
 type DialecticReasoningLevel = "minimal" | "low" | "medium" | "high" | "max"
 type ContextRefreshSettings = {
@@ -29,9 +30,12 @@ type HonchoSettings = {
   sessionStrategy: SessionStrategy
   contextScope: ContextScope
   sessionStartDialectic: boolean
+  userPeerPrefix: boolean
+  sessionNaming: SessionNaming
+  sessionPeerPrefix: boolean
 }
 
-type HostScopedSettings = Partial<Pick<HonchoSettings, "workspace" | "aiPeer" | "recallMode" | "sessionStrategy" | "contextScope" | "sessionStartDialectic">>
+type HostScopedSettings = Partial<Pick<HonchoSettings, "workspace" | "aiPeer" | "recallMode" | "sessionStrategy" | "contextScope" | "sessionStartDialectic" | "userPeerPrefix" | "sessionNaming" | "sessionPeerPrefix">>
 
 type RuntimeHandle = {
   rootDir: string
@@ -113,6 +117,9 @@ const DEFAULT_SETTINGS: HonchoSettings = {
   sessionStrategy: "per-directory",
   contextScope: "global",
   sessionStartDialectic: true,
+  userPeerPrefix: true,
+  sessionNaming: "opencode",
+  sessionPeerPrefix: true,
 }
 
 const INTERNAL_DIALECTIC_REASONING_LEVEL: DialecticReasoningLevel = "low"
@@ -126,7 +133,7 @@ const INTERNAL_CONTEXT_REFRESH: ContextRefreshSettings = {
   useSessionStartDialectic: true,
 }
 
-const BOOLEAN_KEYS = new Set<keyof HonchoSettings>(["sessionStartDialectic"])
+const BOOLEAN_KEYS = new Set<keyof HonchoSettings>(["sessionStartDialectic", "userPeerPrefix", "sessionPeerPrefix"])
 
 const NUMBER_KEYS = new Set<keyof HonchoSettings>([])
 
@@ -134,12 +141,13 @@ const ENUM_KEYS: Record<string, ReadonlySet<string>> = {
   recallMode: new Set(["hybrid", "context", "tools"]),
   sessionStrategy: new Set(["per-repo", "per-directory", "per-session", "global", "git-branch", "chat-instance"]),
   contextScope: new Set(["global", "session"]),
+  sessionNaming: new Set(["opencode", "shared"]),
 }
 
 const INHERITABLE_STRING_KEYS = new Set<keyof HonchoSettings>(["apiKey", "baseUrl", "peerName", "aiPeer", "workspace"])
 
 const TOP_LEVEL_SETTING_FIELDS = new Set<keyof HonchoSettings>(["apiKey", "baseUrl", "peerName"])
-const HOST_SETTING_FIELDS = new Set<keyof HonchoSettings>(["workspace", "aiPeer", "recallMode", "sessionStrategy", "contextScope", "sessionStartDialectic"])
+const HOST_SETTING_FIELDS = new Set<keyof HonchoSettings>(["workspace", "aiPeer", "recallMode", "sessionStrategy", "contextScope", "sessionStartDialectic", "userPeerPrefix", "sessionNaming", "sessionPeerPrefix"])
 
 const SETTING_FIELD_PATHS = new Set([
   "apiKey",
@@ -151,6 +159,9 @@ const SETTING_FIELD_PATHS = new Set([
   "sessionStrategy",
   "contextScope",
   "sessionStartDialectic",
+  "userPeerPrefix",
+  "sessionNaming",
+  "sessionPeerPrefix",
 ])
 
 const STATUS_FIELDS = [
@@ -158,6 +169,9 @@ const STATUS_FIELDS = [
   "sessionStrategy",
   "contextScope",
   "sessionStartDialectic",
+  "userPeerPrefix",
+  "sessionNaming",
+  "sessionPeerPrefix",
 ] as const
 
 const DURABLE_PATTERNS = [
@@ -832,6 +846,19 @@ const deriveSessionScope = async ({
   return `${workspaceId}:${normalizeId(repoName)}`
 }
 
+// Cross-host parity helpers. When opted in (userPeerPrefix=false, sessionNaming="shared"),
+// opencode reproduces the claude/codex peer-id and session-name scheme so all three plugins
+// share one user peer and one session row per repo. Defaults preserve opencode's own scheme.
+const deriveUserPeerId = (peerName: string, userPeerPrefix: boolean) =>
+  userPeerPrefix ? normalizeId(`user:${peerName}`) : normalizeId(peerName)
+
+// Mirrors claude getSessionName / codex session_name_for_cwd: `<peer>-<repo>` (or bare `<repo>`
+// when sessionPeerPrefix=false), anchored on the repo root basename.
+const deriveSharedSessionName = (peerName: string, repoName: string, sessionPeerPrefix: boolean) => {
+  const repoPart = normalizeId(repoName)
+  return sessionPeerPrefix ? `${normalizeId(peerName)}-${repoPart}` : repoPart
+}
+
 const deriveRuntimeHandle = async (
   pluginInput: PluginInput,
   input: Record<string, unknown> | undefined,
@@ -842,7 +869,8 @@ const deriveRuntimeHandle = async (
   const sessionId = extractSessionId(input)
   const repoName = path.basename(rootDir)
   const workspaceId = normalizeId(settings.workspace || "opencode")
-  const userPeerId = normalizeId(`user:${settings.peerName || currentUserName()}`)
+  const userPeerName = settings.peerName || currentUserName()
+  const userPeerId = deriveUserPeerId(userPeerName, settings.userPeerPrefix)
   const rootAgentPeerId = normalizeId(settings.aiPeer || "opencode")
   const activeAgentPeerId = rootAgentPeerId
   const childAgentPeerId = null
@@ -870,7 +898,10 @@ const deriveRuntimeHandle = async (
     config: settings,
     workspaceId,
     sessionId,
-    sessionKey: normalizeId(`${settings.sessionStrategy}:${sessionScope}:${lineage.join(":")}`),
+    sessionKey:
+      settings.sessionNaming === "shared"
+        ? deriveSharedSessionName(userPeerName, repoName, settings.sessionPeerPrefix)
+        : normalizeId(`${settings.sessionStrategy}:${sessionScope}:${lineage.join(":")}`),
     userPeerId,
     rootAgentPeerId,
     activeAgentPeerId,
@@ -1229,6 +1260,9 @@ export const createHonchoRuntimePlugin =
         sessionStrategy: handle.config.sessionStrategy,
         contextScope: handle.config.contextScope,
         sessionStartDialectic: handle.config.sessionStartDialectic,
+        userPeerPrefix: handle.config.userPeerPrefix,
+        sessionNaming: handle.config.sessionNaming,
+        sessionPeerPrefix: handle.config.sessionPeerPrefix,
         peerName: handle.config.peerName,
         configured: hasConfiguredAuth(handle.config),
         localMode: isLocalBaseUrl(handle.config.baseUrl),
@@ -1836,6 +1870,8 @@ export const __testing = {
   parseSettingValue,
   setSettingValue,
   currentUserName,
+  deriveUserPeerId,
+  deriveSharedSessionName,
   buildScopedContext,
   dialecticEnabledFor,
   createRuntimeCache,
