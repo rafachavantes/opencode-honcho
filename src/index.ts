@@ -933,8 +933,7 @@ const createRuntimeCache = <T>(
     async getOrCreate(key, input) {
       const cached = entries.get(key)
       if (cached) {
-        entries.delete(key)
-        entries.set(key, cached)
+        touch(key, cached)
         return cached
       }
       const pending = build(input).catch((error) => {
@@ -1179,6 +1178,10 @@ export const createHonchoRuntimePlugin =
           return await action(await runtimeCache.getOrCreate(cacheKey, input))
         } catch (error) {
           if (isNotFoundError(error)) {
+            // Self-heal: the 404 is assumed to come from stale runtime/session
+            // CONSTRUCTION (the side-effect-light path), not from mid-`action`
+            // work -- so evicting the cache entry and re-running `action` once
+            // against a freshly built runtime is safe.
             runtimeCache.evict(cacheKey)
             return await action(await runtimeCache.getOrCreate(cacheKey, input))
           }

@@ -54,6 +54,24 @@ test("LRU cap evicts the oldest entry", async () => {
   expect(cache.size()).toBe(2)
 })
 
+test("LRU touch-on-hit keeps the recently-accessed key", async () => {
+  let builds = 0
+  const cache = __testing.createRuntimeCache(async (input) => ({ key: input.key, n: ++builds }), { maxEntries: 2 })
+  await cache.getOrCreate("a", { key: "a" })
+  await cache.getOrCreate("b", { key: "b" })
+  await cache.getOrCreate("a", { key: "a" }) // hit -> a becomes most-recent
+  await cache.getOrCreate("c", { key: "c" }) // should evict b, not a
+  expect(cache.size()).toBe(2)
+  // a still cached: rebuild count unchanged when re-fetched
+  const beforeA = builds
+  await cache.getOrCreate("a", { key: "a" })
+  expect(builds).toBe(beforeA) // a was a hit, no rebuild
+  // b was evicted: re-fetch triggers a rebuild
+  const beforeB = builds
+  await cache.getOrCreate("b", { key: "b" })
+  expect(builds).toBe(beforeB + 1)
+})
+
 test("isNotFoundError detects 404 by status and by message", () => {
   expect(__testing.isNotFoundError({ status: 404 })).toBe(true)
   expect(__testing.isNotFoundError(new Error("HTTP 404: missing"))).toBe(true)
