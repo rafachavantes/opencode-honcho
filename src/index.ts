@@ -871,6 +871,9 @@ const deriveRuntimeHandle = async (
 
 const deriveSessionStateKey = (handle: Pick<RuntimeHandle, "sessionId" | "sessionKey">) => handle.sessionKey || handle.sessionId
 
+const deriveRuntimeCacheKey = (handle: RuntimeHandle) =>
+  `${handle.sessionKey || handle.sessionId}::${handle.config.apiKey}::${handle.config.baseUrl}`
+
 const buildPeerTopology = (handle: Pick<
   RuntimeHandle,
   "config" | "userPeerId" | "rootAgentPeerId" | "activeAgentPeerId" | "childAgentPeerId" | "parentAgentObserverPeerId"
@@ -901,6 +904,65 @@ const buildPeerTopology = (handle: Pick<
 
 const sessionPeerAdditions = (topology: PeerTopology) =>
   Object.entries(topology.sessionPeerConfigs).map(([peerId, config]) => [peerId, config] as const)
+
+type RuntimeCache<T> = {
+  getOrCreate: (key: string, input: Record<string, unknown> | undefined) => Promise<T>
+  evict: (key: string) => void
+  evictAll: () => void
+  size: () => number
+}
+
+const createRuntimeCache = <T>(
+  build: (input: Record<string, unknown> | undefined) => Promise<T>,
+  options: { maxEntries?: number } = {},
+): RuntimeCache<T> => {
+  const maxEntries = options.maxEntries ?? 32
+  const entries = new Map<string, Promise<T>>()
+
+  const touch = (key: string, value: Promise<T>) => {
+    entries.delete(key)
+    entries.set(key, value)
+    while (entries.size > maxEntries) {
+      const oldest = entries.keys().next().value
+      if (oldest === undefined) break
+      entries.delete(oldest)
+    }
+  }
+
+  return {
+    async getOrCreate(key, input) {
+      const cached = entries.get(key)
+      if (cached) {
+        entries.delete(key)
+        entries.set(key, cached)
+        return cached
+      }
+      const pending = build(input).catch((error) => {
+        entries.delete(key)
+        throw error
+      })
+      touch(key, pending)
+      return pending
+    },
+    evict(key) {
+      entries.delete(key)
+    },
+    evictAll() {
+      entries.clear()
+    },
+    size() {
+      return entries.size
+    },
+  }
+}
+
+const isNotFoundError = (error: unknown): boolean => {
+  if (!error) return false
+  const status = (error as { status?: unknown }).status
+  if (status === 404) return true
+  const message = error instanceof Error ? error.message : String(error)
+  return /\b404\b/.test(message)
+}
 
 const createActiveRuntime = async (
   pluginInput: PluginInput,
@@ -1072,6 +1134,10 @@ export const createHonchoRuntimePlugin =
   async (pluginInput) => {
     const sessionStates = new Map<string, SessionState>()
 
+    const runtimeCache = createRuntimeCache<ActiveRuntime>((input) =>
+      createActiveRuntime(pluginInput, input, configPath),
+    )
+
     const getState = (stateKey: string) => {
       let current = sessionStates.get(stateKey)
       if (!current) {
@@ -1108,7 +1174,16 @@ export const createHonchoRuntimePlugin =
         return fallback
       }
       try {
-        return await action(await createActiveRuntime(pluginInput, input, configPath))
+        const cacheKey = deriveRuntimeCacheKey(handle)
+        try {
+          return await action(await runtimeCache.getOrCreate(cacheKey, input))
+        } catch (error) {
+          if (isNotFoundError(error)) {
+            runtimeCache.evict(cacheKey)
+            return await action(await runtimeCache.getOrCreate(cacheKey, input))
+          }
+          throw error
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         await log("error", "Honcho runtime operation failed.", {
@@ -1316,6 +1391,7 @@ export const createHonchoRuntimePlugin =
         }
         if (event.type === "session.deleted" || event.type === "session.error") {
           sessionStates.delete(stateKey)
+          runtimeCache.evict(deriveRuntimeCacheKey(handle))
           return
         }
         if (event.type === "session.created") {
@@ -1529,6 +1605,7 @@ export const createHonchoRuntimePlugin =
                   persistedFields.push("baseUrl")
                 }
                 await writeSharedGlobalSettings(handle.globalConfigPath, nextGlobal)
+                runtimeCache.evictAll()
               }
 
               const configured = hasConfiguredAuth({
@@ -1599,6 +1676,7 @@ export const createHonchoRuntimePlugin =
             const nextValue = parseSettingValue(field, args.value)
             setSettingValue(nextPersisted, field, nextValue)
             await writeSettings(handle.configPath, nextPersisted)
+            runtimeCache.evictAll()
             return JSON.stringify(
               {
                 ok: true,
@@ -1744,5 +1822,8 @@ export const __testing = {
   setSettingValue,
   currentUserName,
   buildScopedContext,
+  createRuntimeCache,
+  deriveRuntimeCacheKey,
+  isNotFoundError,
 }
 export default HonchoRuntimePlugin
