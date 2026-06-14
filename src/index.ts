@@ -482,7 +482,7 @@ type ScopedContext = { summary: string; representation: string; peerCard: string
 
 const buildScopedContext = async (
   runtime: {
-    config: Pick<HonchoSettings, "contextScope" | "recallMode">
+    config: Pick<HonchoSettings, "contextScope">
     userPeer: {
       context: (opts: Record<string, unknown>) => Promise<{ representation?: unknown; peerCard?: unknown }>
       card?: () => Promise<unknown>
@@ -501,6 +501,8 @@ const buildScopedContext = async (
     Array.isArray(value.peerCard) ? value.peerCard.map((item) => String(item)) : null
 
   if (scope === "session") {
+    // Note: limitToSession was intentionally dropped — the backend limit_to_session is a no-op on
+    // the search branch, so session scoping lives here in this session branch instead.
     const sessionCtx = await runtime.session.context({
       summary: true,
       peerPerspective: (runtime as Record<string, unknown>).agentPeer,
@@ -521,7 +523,7 @@ const buildScopedContext = async (
     }
   }
 
-  // Global scope: today's behavior.
+  // Global scope: today's behavior. limitToSession was removed here too (backend no-op on search).
   if (phase === "prompt") {
     const sessionCtx = await runtime.session.context({
       summary: true,
