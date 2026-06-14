@@ -477,6 +477,74 @@ const parseSessionSummary = (value: unknown) => {
 const parseRepresentation = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : ""
 
+type ScopedContextPhase = "session-start" | "prompt" | "compact"
+type ScopedContext = { summary: string; representation: string; peerCard: string[] | null }
+
+const buildScopedContext = async (
+  runtime: {
+    config: Pick<HonchoSettings, "contextScope" | "recallMode">
+    userPeer: {
+      context: (opts: Record<string, unknown>) => Promise<{ representation?: unknown; peerCard?: unknown }>
+      card?: () => Promise<unknown>
+    }
+    agentPeer: { context: (opts: Record<string, unknown>) => Promise<{ representation?: unknown }> }
+    session: {
+      context: (opts: Record<string, unknown>) => Promise<{ summary?: unknown; peerRepresentation?: unknown }>
+      summaries: () => Promise<{ shortSummary?: unknown; longSummary?: unknown }>
+    }
+  } & Record<string, unknown>,
+  phase: ScopedContextPhase,
+  query?: string,
+): Promise<ScopedContext> => {
+  const scope = runtime.config.contextScope
+  const peerCardOf = (value: { peerCard?: unknown }) =>
+    Array.isArray(value.peerCard) ? value.peerCard.map((item) => String(item)) : null
+
+  if (scope === "session") {
+    const sessionCtx = await runtime.session.context({
+      summary: true,
+      peerPerspective: (runtime as Record<string, unknown>).agentPeer,
+      peerTarget: (runtime as Record<string, unknown>).userPeer,
+      representationOptions:
+        phase === "prompt" && query
+          ? { searchQuery: query, searchTopK: 5, searchMaxDistance: 0.7, maxConclusions: 6 }
+          : undefined,
+    })
+    const userCtx =
+      phase === "session-start"
+        ? await runtime.userPeer.context({ maxConclusions: 0, includeMostFrequent: false })
+        : null
+    return {
+      summary: parseSessionSummary(sessionCtx.summary),
+      representation: "",
+      peerCard: userCtx ? peerCardOf(userCtx) : null,
+    }
+  }
+
+  // Global scope: today's behavior.
+  if (phase === "prompt") {
+    const sessionCtx = await runtime.session.context({
+      summary: true,
+      peerPerspective: (runtime as Record<string, unknown>).agentPeer,
+      peerTarget: (runtime as Record<string, unknown>).userPeer,
+      representationOptions: query
+        ? { searchQuery: query, searchTopK: 5, searchMaxDistance: 0.7, maxConclusions: 6 }
+        : undefined,
+    })
+    return {
+      summary: parseSessionSummary(sessionCtx.summary),
+      representation: parseRepresentation((sessionCtx as { peerRepresentation?: unknown }).peerRepresentation),
+      peerCard: null,
+    }
+  }
+  const userCtx = await runtime.userPeer.context({ maxConclusions: 12, includeMostFrequent: true })
+  return {
+    summary: "",
+    representation: parseRepresentation(userCtx.representation),
+    peerCard: peerCardOf(userCtx),
+  }
+}
+
 const formatPeerContextBlock = (heading: string, representation: string, peerCard: string[] | null) => {
   const sections: string[] = []
   if (peerCard && peerCard.length > 0) {
@@ -1121,12 +1189,9 @@ export const createHonchoRuntimePlugin =
 
     const hydrateSessionStartContext = async (runtime: ActiveRuntime, state: SessionState) => {
       const dialecticEnabled = INTERNAL_CONTEXT_REFRESH.useSessionStartDialectic
-      const [userContextResult, agentContextResult, summariesResult, userChatResult, agentChatResult] =
+      const [scopedResult, agentContextResult, summariesResult, userChatResult, agentChatResult] =
         await Promise.allSettled([
-          runtime.userPeer.context({
-            maxConclusions: 12,
-            includeMostFrequent: true,
-          }),
+          buildScopedContext(runtime, "session-start"),
           runtime.agentPeer.context({
             maxConclusions: 8,
             includeMostFrequent: true,
@@ -1154,11 +1219,11 @@ export const createHonchoRuntimePlugin =
         ])
 
       const sections: string[] = []
-      if (userContextResult.status === "fulfilled") {
+      if (scopedResult.status === "fulfilled") {
         const block = formatPeerContextBlock(
           "## User Memory Profile",
-          parseRepresentation(userContextResult.value.representation),
-          userContextResult.value.peerCard,
+          scopedResult.value.representation,
+          scopedResult.value.peerCard,
         )
         if (block) {
           sections.push(block)
@@ -1191,7 +1256,7 @@ export const createHonchoRuntimePlugin =
 
       state.stableContext = sections.length > 0 ? sections.join("\n\n") : null
       return (
-        userContextResult.status === "fulfilled" ||
+        scopedResult.status === "fulfilled" ||
         agentContextResult.status === "fulfilled" ||
         summariesResult.status === "fulfilled" ||
         (dialecticEnabled && userChatResult.status === "fulfilled") ||
@@ -1204,22 +1269,8 @@ export const createHonchoRuntimePlugin =
       if (!shouldRefreshPromptContext(state, topicKey, INTERNAL_CONTEXT_REFRESH)) {
         return state.cachedPromptContext
       }
-      const sessionContext = await runtime.session.context({
-        summary: true,
-        peerPerspective: runtime.agentPeer,
-        peerTarget: runtime.userPeer,
-        limitToSession: runtime.config.sessionStrategy === "per-session",
-        representationOptions: {
-          searchQuery: topicKey || undefined,
-          searchTopK: 5,
-          searchMaxDistance: 0.7,
-          maxConclusions: 6,
-        },
-      })
-      const compiled = formatPromptContextBlock(
-        parseSessionSummary(sessionContext.summary),
-        parseRepresentation(sessionContext.peerRepresentation),
-      )
+      const scoped = await buildScopedContext(runtime, "prompt", topicKey || undefined)
+      const compiled = formatPromptContextBlock(scoped.summary, scoped.representation)
       state.cachedPromptContext = compiled || null
       state.lastPromptRefreshAt = Date.now()
       state.lastTopicKey = topicKey
@@ -1690,5 +1741,6 @@ export const __testing = {
   parseSettingValue,
   setSettingValue,
   currentUserName,
+  buildScopedContext,
 }
 export default HonchoRuntimePlugin
