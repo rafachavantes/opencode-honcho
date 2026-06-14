@@ -622,7 +622,7 @@ const writeSettings = async (
   await writeFile(configPath, `${JSON.stringify(settings, null, 2)}\n`, "utf-8")
 }
 
-const currentUserName = () => "user"
+const currentUserName = () => process.env.USER || process.env.USERNAME || "user"
 
 const rootApiKey = (raw: Record<string, unknown>) => {
   const legacyApiKey = typeof raw[LEGACY_API_KEY_FIELD] === "string" ? expandEnv(raw[LEGACY_API_KEY_FIELD] as string) : ""
@@ -1689,5 +1689,6 @@ export const __testing = {
   sessionPeerAdditions,
   parseSettingValue,
   setSettingValue,
+  currentUserName,
 }
 export default HonchoRuntimePlugin
