@@ -75,7 +75,9 @@ OpenCode reads and writes this shared config file directly. OpenCode-specific de
       "workspace": "opencode",
       "aiPeer": "opencode",
       "recallMode": "hybrid",
-      "sessionStrategy": "per-directory"
+      "sessionStrategy": "per-directory",
+      "contextScope": "session",
+      "sessionStartDialectic": false
     }
   }
 }
@@ -105,6 +107,13 @@ If OpenCode is running in Docker or another remote environment, `localhost` may 
 | `per-session` | New session for each OpenCode session id | Short-lived isolated work |
 | `chat-instance` | Session follows the current chat instance | Highly ephemeral usage |
 | `global` | One session for everything | Shared memory across all work |
+
+### Context and Performance Flags
+
+| Flag | Default | Options | Description |
+| --- | --- | --- | --- |
+| `contextScope` | `global` | `global` \| `session` | `session` scopes injected memory to the current session (session summary + durable peerCard only; drops cross-project conclusions and representation). Use `session` when you see other projects' context bleeding into the current one. |
+| `sessionStartDialectic` | `true` | `true` \| `false` | `false` skips the two session-start dialectic LLM summary calls for a faster session start. |
 
 ## Operator Commands
 
