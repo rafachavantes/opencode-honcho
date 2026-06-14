@@ -876,19 +876,26 @@ const deriveRuntimeHandle = async (
   const childAgentPeerId = null
   const parentAgentObserverPeerId = null
 
-  const cwd = pluginInput.directory || pluginInput.worktree || rootDir
-  const sessionScope = await deriveSessionScope({
-    workspaceId,
-    sessionStrategy: settings.sessionStrategy,
-    rootDir,
-    repoName,
-    currentDirectory: cwd,
-    sessionId,
-  })
-
-  const lineage = [activeAgentPeerId]
-  if (parentAgentObserverPeerId && parentAgentObserverPeerId !== rootAgentPeerId) {
-    lineage.unshift(parentAgentObserverPeerId)
+  // Shared naming bypasses strategy/scope/lineage entirely, so skip the (possibly
+  // git-touching) deriveSessionScope call when it would be unused.
+  let sessionKey: string
+  if (settings.sessionNaming === "shared") {
+    sessionKey = deriveSharedSessionName(userPeerName, repoName, settings.sessionPeerPrefix)
+  } else {
+    const cwd = pluginInput.directory || pluginInput.worktree || rootDir
+    const sessionScope = await deriveSessionScope({
+      workspaceId,
+      sessionStrategy: settings.sessionStrategy,
+      rootDir,
+      repoName,
+      currentDirectory: cwd,
+      sessionId,
+    })
+    const lineage = [activeAgentPeerId]
+    if (parentAgentObserverPeerId && parentAgentObserverPeerId !== rootAgentPeerId) {
+      lineage.unshift(parentAgentObserverPeerId)
+    }
+    sessionKey = normalizeId(`${settings.sessionStrategy}:${sessionScope}:${lineage.join(":")}`)
   }
 
   return {
@@ -898,10 +905,7 @@ const deriveRuntimeHandle = async (
     config: settings,
     workspaceId,
     sessionId,
-    sessionKey:
-      settings.sessionNaming === "shared"
-        ? deriveSharedSessionName(userPeerName, repoName, settings.sessionPeerPrefix)
-        : normalizeId(`${settings.sessionStrategy}:${sessionScope}:${lineage.join(":")}`),
+    sessionKey,
     userPeerId,
     rootAgentPeerId,
     activeAgentPeerId,
