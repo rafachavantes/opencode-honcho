@@ -480,6 +480,9 @@ const parseRepresentation = (value: unknown) =>
 type ScopedContextPhase = "session-start" | "prompt" | "compact"
 type ScopedContext = { summary: string; representation: string; peerCard: string[] | null }
 
+const dialecticEnabledFor = (config: Pick<HonchoSettings, "sessionStartDialectic">) =>
+  config.sessionStartDialectic
+
 const buildScopedContext = async (
   runtime: {
     config: Pick<HonchoSettings, "contextScope">
@@ -1268,7 +1271,7 @@ export const createHonchoRuntimePlugin =
     }
 
     const hydrateSessionStartContext = async (runtime: ActiveRuntime, state: SessionState) => {
-      const dialecticEnabled = INTERNAL_CONTEXT_REFRESH.useSessionStartDialectic
+      const dialecticEnabled = dialecticEnabledFor(runtime.config)
       const [scopedResult, agentContextResult, summariesResult, userChatResult, agentChatResult] =
         await Promise.allSettled([
           buildScopedContext(runtime, "session-start"),
@@ -1825,6 +1828,7 @@ export const __testing = {
   setSettingValue,
   currentUserName,
   buildScopedContext,
+  dialecticEnabledFor,
   createRuntimeCache,
   deriveRuntimeCacheKey,
   isNotFoundError,
