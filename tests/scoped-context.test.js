@@ -47,3 +47,18 @@ test("session scope never surfaces the global representation string", async () =
     expect(out.representation).not.toContain("SCOPED_REP")
   }
 })
+
+test("session summary is clamped to a bounded length", async () => {
+  const runtime = {
+    config: { contextScope: "session", recallMode: "hybrid" },
+    userPeerId: "u",
+    userPeer: { context: async () => ({ peerCard: ["c"] }) },
+    agentPeer: { context: async () => ({}) },
+    session: {
+      context: async () => ({ summary: "x".repeat(5000), peerRepresentation: "" }),
+      summaries: async () => ({}),
+    },
+  }
+  const out = await __testing.buildScopedContext(runtime, "prompt", "q")
+  expect(out.summary.length).toBeLessThanOrEqual(2000)
+})

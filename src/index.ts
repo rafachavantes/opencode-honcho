@@ -527,7 +527,7 @@ const buildScopedContext = async (
         ? await runtime.userPeer.context({ maxConclusions: 0, includeMostFrequent: false })
         : null
     return {
-      summary: parseSessionSummary(sessionCtx.summary),
+      summary: clampText(parseSessionSummary(sessionCtx.summary), 2000),
       representation: "",
       peerCard: userCtx ? peerCardOf(userCtx) : null,
     }
@@ -544,7 +544,7 @@ const buildScopedContext = async (
         : undefined,
     })
     return {
-      summary: parseSessionSummary(sessionCtx.summary),
+      summary: clampText(parseSessionSummary(sessionCtx.summary), 2000),
       representation: parseRepresentation((sessionCtx as { peerRepresentation?: unknown }).peerRepresentation),
       peerCard: null,
     }
