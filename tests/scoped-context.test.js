@@ -62,3 +62,24 @@ test("session summary is clamped to a bounded length", async () => {
   const out = await __testing.buildScopedContext(runtime, "prompt", "q")
   expect(out.summary.length).toBeLessThanOrEqual(2000)
 })
+
+test("global scope prompt phase returns session peerRepresentation + summary (default path)", async () => {
+  const out = await __testing.buildScopedContext(makeRuntime("global"), "prompt", "topic")
+  expect(out.representation).toBe("SCOPED_REP")
+  expect(out.summary).toBe("SESSION_SUMMARY")
+  expect(out.peerCard).toBe(null)
+})
+
+test("global scope prompt summary is NOT clamped (byte-for-byte upstream)", async () => {
+  const runtime = {
+    config: { contextScope: "global", recallMode: "hybrid" },
+    userPeer: { context: async () => ({ representation: "R", peerCard: null }) },
+    agentPeer: { context: async () => ({}) },
+    session: {
+      context: async () => ({ summary: "y".repeat(5000), peerRepresentation: "" }),
+      summaries: async () => ({}),
+    },
+  }
+  const out = await __testing.buildScopedContext(runtime, "prompt", "q")
+  expect(out.summary.length).toBe(5000)
+})

@@ -484,7 +484,7 @@ const parseSessionSummary = (value: unknown) => {
 const parseRepresentation = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : ""
 
-type ScopedContextPhase = "session-start" | "prompt" | "compact"
+type ScopedContextPhase = "session-start" | "prompt"
 type ScopedContext = { summary: string; representation: string; peerCard: string[] | null }
 
 const dialecticEnabledFor = (config: Pick<HonchoSettings, "sessionStartDialectic">) =>
@@ -544,7 +544,7 @@ const buildScopedContext = async (
         : undefined,
     })
     return {
-      summary: clampText(parseSessionSummary(sessionCtx.summary), 2000),
+      summary: parseSessionSummary(sessionCtx.summary),
       representation: parseRepresentation((sessionCtx as { peerRepresentation?: unknown }).peerRepresentation),
       peerCard: null,
     }
