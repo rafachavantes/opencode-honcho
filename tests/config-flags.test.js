@@ -26,3 +26,8 @@ test("both new fields are settable host-scoped paths", () => {
   expect(target.hosts.opencode.contextScope).toBe("session")
   expect(target.hosts.opencode.sessionStartDialectic).toBe(false)
 })
+
+test("status field list includes the new flags", () => {
+  expect(__testing.statusFields).toContain("contextScope")
+  expect(__testing.statusFields).toContain("sessionStartDialectic")
+})

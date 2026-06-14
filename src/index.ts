@@ -153,6 +153,13 @@ const SETTING_FIELD_PATHS = new Set([
   "sessionStartDialectic",
 ])
 
+const STATUS_FIELDS = [
+  "recallMode",
+  "sessionStrategy",
+  "contextScope",
+  "sessionStartDialectic",
+] as const
+
 const DURABLE_PATTERNS = [
   /\b(i prefer|i like|i love|i hate)\b/i,
   /\b(my name is|call me)\b/i,
@@ -1220,6 +1227,8 @@ export const createHonchoRuntimePlugin =
         sessionName: handle.sessionKey,
         recallMode: handle.config.recallMode,
         sessionStrategy: handle.config.sessionStrategy,
+        contextScope: handle.config.contextScope,
+        sessionStartDialectic: handle.config.sessionStartDialectic,
         peerName: handle.config.peerName,
         configured: hasConfiguredAuth(handle.config),
         localMode: isLocalBaseUrl(handle.config.baseUrl),
@@ -1832,5 +1841,6 @@ export const __testing = {
   createRuntimeCache,
   deriveRuntimeCacheKey,
   isNotFoundError,
+  statusFields: STATUS_FIELDS,
 }
 export default HonchoRuntimePlugin
