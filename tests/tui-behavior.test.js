@@ -89,6 +89,33 @@ test("status message shows defaults for memory & session when unset", () => {
   assert.match(message, /Session-start dialectic: on/)
 })
 
+test("config editor exposes the memory & session fields", () => {
+  const paths = __testing.modeEditableFieldPaths()
+  for (const f of [
+    "hosts.opencode.contextScope",
+    "hosts.opencode.sessionNaming",
+    "hosts.opencode.sessionPeerPrefix",
+    "hosts.opencode.userPeerPrefix",
+    "hosts.opencode.sessionStartDialectic",
+  ]) {
+    assert.ok(paths.includes(f), `missing editable path ${f}`)
+  }
+})
+
+test("config editor offers presets for new enums and booleans (even when unset)", () => {
+  assert.deepEqual(__testing.sharedConfigPresetOptions("hosts.opencode.contextScope", undefined), ["global", "session"])
+  assert.deepEqual(__testing.sharedConfigPresetOptions("hosts.opencode.sessionNaming", undefined), ["opencode", "shared"])
+  // unset boolean field must still offer true/false
+  assert.deepEqual(__testing.sharedConfigPresetOptions("hosts.opencode.userPeerPrefix", undefined), ["true", "false"])
+})
+
+test("config editor coerces unset boolean fields to real booleans", () => {
+  assert.strictEqual(__testing.parseSharedConfigValue(undefined, "false", "hosts.opencode.userPeerPrefix"), false)
+  assert.strictEqual(__testing.parseSharedConfigValue(undefined, "true", "hosts.opencode.sessionStartDialectic"), true)
+  // enum field stays a string
+  assert.strictEqual(__testing.parseSharedConfigValue(undefined, "shared", "hosts.opencode.sessionNaming"), "shared")
+})
+
 test("settings message shows config values separately from status messaging", () => {
   const message = __testing.settingsMessage({
     apiKey: "key",
@@ -150,6 +177,11 @@ test("honcho config only exposes top-level and hosts.opencode fields", () => {
     "hosts.opencode.aiPeer",
     "hosts.opencode.recallMode",
     "hosts.opencode.sessionStrategy",
+    "hosts.opencode.contextScope",
+    "hosts.opencode.sessionNaming",
+    "hosts.opencode.sessionPeerPrefix",
+    "hosts.opencode.userPeerPrefix",
+    "hosts.opencode.sessionStartDialectic",
   ])
   assert.equal(__testing.modeEditableFieldPaths().includes("hosts.claude_code.workspace"), false)
   assert.equal(__testing.modeEditableFieldPaths().includes("hosts.other.aiPeer"), false)

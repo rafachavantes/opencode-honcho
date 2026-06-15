@@ -14,7 +14,14 @@ const SHARED_CONFIG_PRESETS: Record<string, readonly string[]> = {
   peermodel: ["classic", "hierarchical"],
   sessionstrategy: ["per-repo", "per-directory", "per-session", "global", "git-branch", "chat-instance"],
   dialecticreasoninglevel: ["minimal", "low", "medium", "high", "max"],
+  contextscope: ["global", "session"],
+  sessionnaming: ["opencode", "shared"],
 }
+
+// Boolean host fields. Tracked by last-path-segment (lowercased) so the editor offers
+// a true/false picker and coerces to a real boolean even when the field is unset
+// (currentValue undefined would otherwise be treated as a string).
+const BOOLEAN_FIELD_KEYS = new Set(["userpeerprefix", "sessionpeerprefix", "sessionstartdialectic"])
 
 const MODE_EDITABLE_FIELD_PATHS = [
   "apiKey",
@@ -24,6 +31,11 @@ const MODE_EDITABLE_FIELD_PATHS = [
   "hosts.opencode.aiPeer",
   "hosts.opencode.recallMode",
   "hosts.opencode.sessionStrategy",
+  "hosts.opencode.contextScope",
+  "hosts.opencode.sessionNaming",
+  "hosts.opencode.sessionPeerPrefix",
+  "hosts.opencode.userPeerPrefix",
+  "hosts.opencode.sessionStartDialectic",
 ] as const
 
 type GlobalSettings = {
@@ -142,20 +154,25 @@ const resolveSharedConfigField = (config: Record<string, unknown>, field: string
 
 const modeEditableFieldPaths = () => [...MODE_EDITABLE_FIELD_PATHS]
 
+const fieldKey = (fieldPath: string) => fieldPath.split(".").at(-1)?.toLowerCase() || fieldPath.toLowerCase()
+
+const isBooleanField = (fieldPath: string, currentValue: unknown) =>
+  typeof currentValue === "boolean" || BOOLEAN_FIELD_KEYS.has(fieldKey(fieldPath))
+
 const sharedConfigPresetOptions = (fieldPath: string, currentValue: unknown) => {
-  const presetKey = fieldPath.split(".").at(-1)?.toLowerCase() || fieldPath.toLowerCase()
+  const presetKey = fieldKey(fieldPath)
   if (SHARED_CONFIG_PRESETS[presetKey]) {
     return [...SHARED_CONFIG_PRESETS[presetKey]]
   }
-  if (typeof currentValue === "boolean") {
+  if (isBooleanField(fieldPath, currentValue)) {
     return ["true", "false"]
   }
   return []
 }
 
-const parseSharedConfigValue = (currentValue: unknown, rawValue: string) => {
+const parseSharedConfigValue = (currentValue: unknown, rawValue: string, fieldPath = "") => {
   const trimmed = rawValue.trim()
-  if (typeof currentValue === "boolean") {
+  if (isBooleanField(fieldPath, currentValue)) {
     return trimmed.toLowerCase() === "true"
   }
   if (typeof currentValue === "number") {
@@ -425,7 +442,7 @@ const openModeValueDialog = async (
   const persistValue = async (rawValue: string) => {
     try {
       const nextConfig = structuredClone(config)
-      const nextValue = parseSharedConfigValue(currentValue, rawValue)
+      const nextValue = parseSharedConfigValue(currentValue, rawValue, fieldPath)
       setNestedValue(nextConfig, fieldPath, nextValue)
       const configPath = await writeSharedConfig(nextConfig)
       api.ui.dialog.replace(() =>
@@ -618,6 +635,7 @@ export const __testing = {
   settingsMessage,
   sharedConfigPath,
   sharedConfigPresetOptions,
+  parseSharedConfigValue,
   statusMessage,
   validateCloudApiKey,
 }
