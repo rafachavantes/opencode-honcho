@@ -52,6 +52,43 @@ test("status message includes peer name and live workspace/OpenCode session valu
   assert.match(message, /OpenCode session: ses_test/)
 })
 
+test("status message surfaces effective memory & session settings", () => {
+  const message = __testing.statusMessage({
+    apiKey: "key",
+    peerName: "rafa",
+    baseUrl: "https://api.honcho.dev",
+    hosts: {
+      opencode: {
+        workspace: "rafa",
+        aiPeer: "assistant",
+        recallMode: "hybrid",
+        sessionStrategy: "per-directory",
+        contextScope: "session",
+        sessionNaming: "shared",
+        sessionPeerPrefix: true,
+        userPeerPrefix: false,
+        sessionStartDialectic: false,
+      },
+    },
+  })
+
+  assert.match(message, /Memory & session/)
+  assert.match(message, /AI peer: assistant/)
+  assert.match(message, /Context scope: session/)
+  assert.match(message, /Session naming: shared/)
+  assert.match(message, /Session peer prefix: on/)
+  assert.match(message, /User peer prefix: off/)
+  assert.match(message, /Session-start dialectic: off/)
+})
+
+test("status message shows defaults for memory & session when unset", () => {
+  const message = __testing.statusMessage({ apiKey: "key", baseUrl: "https://api.honcho.dev" })
+  assert.match(message, /Context scope: global/)
+  assert.match(message, /Session naming: opencode/)
+  assert.match(message, /User peer prefix: on/)
+  assert.match(message, /Session-start dialectic: on/)
+})
+
 test("settings message shows config values separately from status messaging", () => {
   const message = __testing.settingsMessage({
     apiKey: "key",

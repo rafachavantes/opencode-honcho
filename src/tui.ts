@@ -36,6 +36,11 @@ type GlobalSettings = {
       aiPeer?: string
       recallMode?: "hybrid" | "context" | "tools"
       sessionStrategy?: "per-repo" | "per-directory" | "per-session" | "global" | "git-branch" | "chat-instance"
+      contextScope?: "global" | "session"
+      sessionNaming?: "opencode" | "shared"
+      sessionPeerPrefix?: boolean
+      userPeerPrefix?: boolean
+      sessionStartDialectic?: boolean
     }
   }
 }
@@ -210,6 +215,9 @@ const statusMessage = (
     : normalized.baseUrl === DEFAULT_BASE_URL
       ? "Honcho Cloud"
       : "Custom endpoint"
+  // Host-scoped memory/session settings (defaults mirror DEFAULT_SETTINGS in index.ts).
+  const host = settings.hosts?.opencode || {}
+  const onOff = (value: boolean | undefined, defaultOn: boolean) => ((value ?? defaultOn) ? "on" : "off")
   return [
     `Configured: ${configured ? "yes" : "no"}`,
     `Deployment: ${deployment}`,
@@ -218,6 +226,17 @@ const statusMessage = (
     `Peer name: ${normalized.peerName || "user"}`,
     ...(liveStatus?.workspaceName ? [`Workspace: ${liveStatus.workspaceName}`] : []),
     ...(liveStatus?.openCodeSessionId ? [`OpenCode session: ${liveStatus.openCodeSessionId}`] : []),
+    "",
+    "Memory & session",
+    `  AI peer: ${host.aiPeer || "opencode"}`,
+    `  Recall mode: ${host.recallMode || "hybrid"}`,
+    `  Context scope: ${host.contextScope || "global"}`,
+    `  Session strategy: ${host.sessionStrategy || "per-directory"}`,
+    `  Session naming: ${host.sessionNaming || "opencode"}`,
+    `  Session peer prefix: ${onOff(host.sessionPeerPrefix, true)}`,
+    `  User peer prefix: ${onOff(host.userPeerPrefix, true)}`,
+    `  Session-start dialectic: ${onOff(host.sessionStartDialectic, true)}`,
+    "",
     `Config path: ${globalSettingsPath()}`,
     "",
     configured ? "Honcho is ready for OpenCode." : "Run /honcho:setup to finish configuration.",
