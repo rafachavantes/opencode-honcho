@@ -7,12 +7,12 @@ import { __testing } from "../dist/index.js"
 test("package.json exposes an explicit OpenCode server entry", async () => {
   const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf-8"))
 
-  expect(pkg.name).toBe("@honcho-ai/opencode-honcho")
+  expect(pkg.name).toBe("@rafachavantes/opencode-honcho")
   expect(pkg.exports["./server"].import).toBe("./dist/server.js")
 })
 
 test("server entry default export matches OpenCode plugin expectations", () => {
-  expect(serverModule.id).toBe("@honcho-ai/opencode-honcho")
+  expect(serverModule.id).toBe("@rafachavantes/opencode-honcho")
   expect(typeof serverModule.server).toBe("function")
 })
 

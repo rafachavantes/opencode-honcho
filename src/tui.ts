@@ -3,7 +3,7 @@ import { homedir } from "node:os"
 import path from "node:path"
 import type { TuiPlugin, TuiPluginModule } from "@opencode-ai/plugin/tui"
 
-const PACKAGE_ID = "@honcho-ai/opencode-honcho"
+const PACKAGE_ID = "@rafachavantes/opencode-honcho"
 const DEFAULT_BASE_URL = "https://api.honcho.dev"
 const SHARED_SETTINGS_DIR_NAME = ".honcho"
 const SHARED_SETTINGS_FILE_NAME = "config.json"

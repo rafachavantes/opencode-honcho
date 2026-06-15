@@ -6,11 +6,11 @@ import tuiModule from "../dist/tui.js"
 test("package.json exposes an explicit OpenCode TUI entry", async () => {
   const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf-8"))
 
-  expect(pkg.name).toBe("@honcho-ai/opencode-honcho")
+  expect(pkg.name).toBe("@rafachavantes/opencode-honcho")
   expect(pkg.exports["./tui"].import).toBe("./dist/tui.js")
 })
 
 test("tui entry default export matches OpenCode plugin expectations", () => {
-  expect(tuiModule.id).toBe("@honcho-ai/opencode-honcho")
+  expect(tuiModule.id).toBe("@rafachavantes/opencode-honcho")
   expect(typeof tuiModule.tui).toBe("function")
 })

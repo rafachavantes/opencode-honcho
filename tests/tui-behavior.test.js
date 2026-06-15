@@ -7,7 +7,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises"
 import tuiModule, { __testing } from "../dist/tui.js"
 
 test("tui exports testing helpers for cloud api key validation", () => {
-  assert.equal(tuiModule.id, "@honcho-ai/opencode-honcho")
+  assert.equal(tuiModule.id, "@rafachavantes/opencode-honcho")
   assert.match(__testing.validateCloudApiKey(""), /requires a Honcho API key/i)
   assert.equal(__testing.validateCloudApiKey("hch-test-key"), null)
 })
