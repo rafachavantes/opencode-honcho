@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test"
+import { mkdtempSync } from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { __testing } from "../dist/index.js"
 
 // ---- config flag plumbing ----
@@ -60,4 +63,20 @@ test("deriveSharedSessionName drops the peer prefix when sessionPeerPrefix=false
 test("deriveSharedSessionName sanitizes repo + peer consistently", () => {
   // EstateMap.AI repo dir -> lowercased, non [a-z0-9_-] collapsed to '-'
   expect(__testing.deriveSharedSessionName("rafa", "EstateMap.AI", true)).toBe("rafa-estatemap-ai")
+})
+
+// ---- deriveProjectRoot: a useless worktree="/" must not win over a real directory ----
+// (regression: a non-git project + worktree="/" produced rootDir="/" -> session "rafa-default")
+
+test("deriveProjectRoot prefers a real (non-git) directory over worktree='/'", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "ocx-root-"))
+  const root = __testing.deriveProjectRoot({ directory: dir, worktree: "/" })
+  expect(root).toBe(path.resolve(dir))
+  expect(path.basename(root)).not.toBe("")
+})
+
+test("deriveProjectRoot never returns the filesystem root", () => {
+  const root = __testing.deriveProjectRoot({ directory: "/", worktree: "/" })
+  expect(root).not.toBe(path.parse(process.cwd()).root)
+  expect(path.basename(root)).not.toBe("")
 })

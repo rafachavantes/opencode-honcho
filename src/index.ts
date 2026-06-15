@@ -665,7 +665,17 @@ const deriveProjectRoot = (pluginInput: PluginInput) => {
       current = parent
     }
   }
-  return path.resolve(pluginInput.worktree || pluginInput.project?.worktree || pluginInput.directory || process.cwd())
+  // No .git/.opencode anchor found (e.g. a non-git project). Keep the original
+  // worktree-first preference (the per-directory strategy anchors on the project
+  // worktree so subdirs become distinct session labels), but skip any hint that
+  // is the filesystem root: basename("/") is empty and collapses the session name
+  // to "default". A truthy-but-useless worktree="/" must NOT win over a real dir.
+  const isRoot = (p: string) => p === path.parse(p).root
+  const fallback = [pluginInput.worktree, pluginInput.project?.worktree, pluginInput.directory, process.cwd()]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => path.resolve(value))
+    .find((value) => !isRoot(value))
+  return fallback || path.resolve(process.cwd())
 }
 
 const sharedConfigPath = (configPathOverride?: string) =>
@@ -1874,6 +1884,7 @@ export const __testing = {
   parseSettingValue,
   setSettingValue,
   currentUserName,
+  deriveProjectRoot,
   deriveUserPeerId,
   deriveSharedSessionName,
   buildScopedContext,
