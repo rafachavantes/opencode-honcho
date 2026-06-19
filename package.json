@@ -45,6 +45,7 @@
     "build": "bun --eval \"const { rm } = await import('node:fs/promises'); await rm('dist', { recursive: true, force: true })\" && bun build ./src/index.ts ./src/server.ts ./src/tui.ts ./src/capabilities.ts --outdir ./dist --target bun --external @opencode-ai/plugin && tsc --emitDeclarationOnly",
     "check": "tsc --noEmit",
     "test": "bun run build && bun test ./tests",
+    "prepare": "bun run build",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
