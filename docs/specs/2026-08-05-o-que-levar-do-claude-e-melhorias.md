@@ -1,8 +1,10 @@
 # Spec — opencode-honcho: o que vale trazer do plugin do Claude, e o que consertar aqui
 
-**Data:** 2026-08-05
+**Data:** 2026-08-05 (revisado no mesmo dia — ver "Correções" no fim)
 **Estado do repo:** `main` em `92373cb`, pacote `@rafachavantes/opencode-honcho` `0.2.0`
-**Forma:** plugin TypeScript sobre `@opencode-ai/plugin` + `@honcho-ai/sdk`; `src/index.ts` com ~1.900 linhas, `src/tui.ts` com ~640, 14 arquivos de teste.
+**Forma:** plugin TypeScript sobre `@opencode-ai/plugin` + um `@honcho-ai/sdk` **vendorizado** (`vendor/honcho-sdk/`, versionado no git); `src/index.ts` com ~1.900 linhas, `src/tui.ts` com ~640, 16 arquivos de teste.
+**Como roda:** o OpenCode carrega este repo (`~/.config/opencode/opencode.json`), mas o `package.json` aponta `main: ./dist/index.js`, e **`dist/` é gitignorado e buildado**. Editar `src/` não muda nada até `bun run build` — o oposto do `honcho-codex`, onde o Codex executa os `.py` direto e a edição vale no turno seguinte.
+**Suíte hoje:** 95 passam, **1 falha** (`tests/honcho-setup.test.js`) — ver C2.
 **Status:** spec de alinhamento. Não é plano executável; os gates no fim precisam ser resolvidos antes.
 
 ---
@@ -58,6 +60,12 @@ Tanto o Claude (`sessionRootFor`) quanto o Codex (`_git_repo_root`) resolvem pel
 
 **B4. Escopo global no default injeta conclusions globais.** Com `contextScope: "global"` (o default, `src/index.ts:118`), o `session-start` chama `userPeer.context({ maxConclusions: 12, includeMostFrequent: true })` — representação global do peer, ou seja, conclusions de todos os projetos. É o vazamento entre projetos que o Claude fechou hoje com `injection.perTurn: []`.
 
+> **B3 e B4 não afetam o Rafa hoje.** O `hosts.opencode` do `~/.honcho/config.json` já traz
+> `contextScope: "session"` e `sessionStartDialectic: false`. São defaults ruins para quem instala
+> do zero, não custo que esta máquina esteja pagando. **Medir sempre contra uma config, nunca
+> contra os defaults do fonte** — foi assim que os dois quase entraram na lista de prioridades sem
+> merecer.
+
 ### Gaps (o que o Claude tem e aqui falta)
 
 **G1. Sem importação de histórico** (a skill `import` + backfill do Claude).
@@ -69,10 +77,11 @@ Tanto o Claude (`sessionRootFor`) quanto o Codex (`_git_repo_root`) resolvem pel
 
 ## Recomendação priorizada
 
-1. **B2 (identidade por raiz do repositório)** — maior ganho, e o menor esforço dos três consertos. Alinha com Claude e Codex, e para de fatiar a memória do projeto. Cuidado com uma decisão explícita: se `sessionNaming: "opencode"` existe para separar sessões de propósito, isso precisa continuar possível.
-2. **B1 (política pós-compactação)** — depois de medir. Se o volume reinjetado for pequeno, não vale código.
-3. **B4 + B3 (defaults caros)** — dois defaults que custam tokens e latência em toda sessão. Talvez baste mudar o default, sem feature nova.
-4. **G1–G4** — bons, não urgentes.
+1. **C2 (o teste vermelho)** — a suíte é o único portão deste repo (não há CI) e ela está falhando. Enquanto estiver, nenhuma outra mudança tem como ser validada com confiança. É também o conserto mais barato da lista.
+2. **B2 (identidade por raiz do repositório)** — maior ganho funcional, e o menor esforço dos consertos de comportamento. Alinha com Claude e Codex, e para de fatiar a memória do projeto. Cuidado com uma decisão explícita: se `sessionNaming: "opencode"` existe para separar sessões de propósito, isso precisa continuar possível.
+3. **B1 (política pós-compactação)** — depois de medir. Se o volume reinjetado for pequeno, não vale código.
+4. **B4 + B3 (defaults caros)** — mudar o default para o que a config do Rafa já usa (`session` / `false`) deixa novas instalações começarem no lugar certo. Não muda nada aqui; é uma correção para os outros.
+5. **G1–G4** — bons, não urgentes.
 
 **Não portar:** `injectOnCompact` como *flag de três estados* antes de medir (B1) — pode ser que um comportamento fixo baste. E nada de `contextScope` novo: já existe aqui.
 
@@ -87,4 +96,18 @@ Quando a cloud atualizar, a nota em `src/index.ts:528` fica obsoleta e o `contex
 1. **Quanto é reinjetado depois de uma compactação neste plugin?** Medir em chars/tokens o que entra no `session-start` após `session.compacted`, do jeito que foi medido no Claude. Sem esse número, B1 é especulação.
 2. **O `sessionStartDialectic` bloqueia a abertura da sessão** ou roda em segundo plano? Se bloqueia, quanto custa em segundo?
 3. **O OpenCode entrega alguma dica de raiz de projeto** além de `directory`/`worktree`? Se entregar, B2 pode não precisar chamar `git`.
-4. **`sessionNaming: "opencode" | "shared"` interage com B2 como?** Entender antes de mexer na identidade.
+4. **`sessionNaming: "opencode" | "shared"` interage com B2 como?** Entender antes de mexer na identidade. A config do Rafa usa `"shared"`.
+
+---
+
+## Correções (revisão de 2026-08-05, mesmo dia)
+
+Três afirmações da primeira versão estavam erradas ou incompletas. Ficam registradas em vez de apagadas, porque cada uma custou uma verificação.
+
+**C1. "Editar aqui muda o plugin em produção" — errado.** Vale para o `honcho-codex`, onde o Codex executa os `.py` direto. Aqui o `package.json` declara `main: ./dist/index.js`, e `dist/` é gitignorado e gerado por `bun run build` (também no `prepare`). **Editar `src/` não tem efeito nenhum até buildar.** O sintoma de esquecer isso é a mudança "não fazer nada" — e é indistinguível de código errado. O cabeçalho deste spec foi corrigido.
+
+**C2. A suíte está vermelha, e a primeira versão não mencionava.** `bun test ./tests` dá **95 passam / 1 falha**: `tests/honcho-setup.test.js` espera `custom-peer` e recebe `rafa`, porque lê o `~/.honcho/config.json` **real** em vez de um `HOME` isolado. Verificado que ele apenas lê — a config do usuário não é sobrescrita —, mas o teste depende do ambiente e vai se comportar diferente em outra máquina.
+
+É a mesma classe de bug que o `claude-honcho` teve hoje: `bun test` roda todos os arquivos no mesmo processo, e módulos que resolvem `homedir()` no topo congelam o valor. Lá a correção foi rodar o cenário num subprocesso com `HOME` próprio. **Corrigir o isolamento, não a expectativa** — trocar `custom-peer` por `rafa` faria o teste passar e destruiria o que ele testa.
+
+**C3. B3 e B4 descreviam defaults do fonte como se fossem custo real.** São defaults ruins para instalações novas, mas a config do Rafa já os sobrescreve (`contextScope: "session"`, `sessionStartDialectic: false`). A prioridade deles caiu, e a regra geral vale para tudo neste spec: **medir contra uma config real, nunca contra os defaults do código**.
