@@ -106,6 +106,7 @@ const SHARED_SETTINGS_FILE_NAME = "config.json"
 const LEGACY_API_KEY_FIELD = "apiKey"
 const RUNTIME_SERVICE = "opencode-honcho"
 const MAX_RECENT_CONCLUSIONS = 8
+const honchoEnabled = () => !["0", "false", "no", "off"].includes((process.env.HONCHO_ENABLED || "").toLowerCase())
 
 const DEFAULT_SETTINGS: HonchoSettings = {
   apiKey: "",
@@ -1186,6 +1187,8 @@ const appendConclusion = (state: SessionState, content: string) => {
 export const createHonchoRuntimePlugin =
   ({ configPath }: RuntimePluginOptions = {}): Plugin =>
   async (pluginInput) => {
+    if (!honchoEnabled()) return {}
+
     const sessionStates = new Map<string, SessionState>()
 
     const runtimeCache = createRuntimeCache<ActiveRuntime>((input) =>

@@ -38,6 +38,15 @@ If your shell cannot find `opencode`, restart your shell or source your shell co
 5. Enter your `peerName`
 6. Run `/honcho:status` to verify the runtime
 
+## Disable for one run
+
+```sh
+HONCHO_ENABLED=false opencode run ...
+opencode run ...
+```
+
+Only `0`, `false`, `no`, and `off` (case-insensitive) disable Honcho; an unset value leaves it enabled. This setting is not persisted.
+
 ## What You Get
 
 - **Persistent Memory** - OpenCode can retain durable context across sessions

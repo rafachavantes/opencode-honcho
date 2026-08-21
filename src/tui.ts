@@ -7,6 +7,7 @@ const PACKAGE_ID = "@rafachavantes/opencode-honcho"
 const DEFAULT_BASE_URL = "https://api.honcho.dev"
 const SHARED_SETTINGS_DIR_NAME = ".honcho"
 const SHARED_SETTINGS_FILE_NAME = "config.json"
+const honchoEnabled = () => !["0", "false", "no", "off"].includes((process.env.HONCHO_ENABLED || "").toLowerCase())
 
 const SHARED_CONFIG_PRESETS: Record<string, readonly string[]> = {
   recallmode: ["hybrid", "context", "tools"],
@@ -616,6 +617,8 @@ const buildCommands = (api: Parameters<TuiPlugin>[0]) => [
 ]
 
 const tui: TuiPlugin = async (api) => {
+  if (!honchoEnabled()) return
+
   api.command.register(() => buildCommands(api))
 }
 

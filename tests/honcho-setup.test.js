@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { existsSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
@@ -67,12 +68,12 @@ const successfulValidationFetch = async (url) => {
   throw new Error(`Unexpected validation request in test: ${target}`)
 }
 
-const createPluginHarness = async (rootDir) => {
-  const plugin = createHonchoRuntimePlugin()
+const createPluginHarness = async (rootDir, { configPath, log = async () => undefined } = {}) => {
+  const plugin = createHonchoRuntimePlugin({ configPath })
   return plugin({
     client: {
       app: {
-        log: async () => undefined,
+        log,
       },
     },
     project: {
@@ -85,6 +86,51 @@ const createPluginHarness = async (rootDir) => {
     $: {},
   })
 }
+
+test("HONCHO_ENABLED disables the runtime before config, HTTP, or logging", async () => {
+  for (const value of ["0", "false", "no", "off", "FaLsE"]) {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-disabled-runtime-"))
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-home-disabled-runtime-"))
+    const invalidConfigParent = path.join(homeDir, "invalid-config-parent")
+    const sharedConfigPath = path.join(homeDir, ".honcho", "config.json")
+    let fetchCalls = 0
+    let logCalls = 0
+
+    await writeFile(invalidConfigParent, "not a directory\n")
+
+    await withEnv({ HOME: homeDir, HONCHO_ENABLED: value }, async () => {
+      await withMockFetch(async () => {
+        fetchCalls += 1
+        throw new Error("fetch should not run")
+      }, async () => {
+        const hooks = await createPluginHarness(rootDir, {
+          configPath: path.join(invalidConfigParent, "config.json"),
+          log: async () => {
+            logCalls += 1
+          },
+        })
+
+        expect(hooks).toEqual({})
+        expect(logCalls).toBe(0)
+        expect(fetchCalls).toBe(0)
+        expect(existsSync(sharedConfigPath)).toBe(false)
+      })
+    })
+  }
+})
+
+test("HONCHO_ENABLED defaults to an enabled runtime unless disabled explicitly", async () => {
+  for (const value of [undefined, "yes", " false", "off "]) {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-enabled-runtime-"))
+
+    await withEnv({ HONCHO_ENABLED: value }, async () => {
+      const hooks = await createPluginHarness(rootDir)
+
+      expect(typeof hooks.event).toBe("function")
+      expect(typeof hooks.tool.honcho_status).toBe("object")
+    })
+  }
+})
 
 const toolContext = (rootDir) => ({
   sessionID: "ses_test",
