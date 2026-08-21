@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import os from "node:os"
 import path from "node:path"
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises"
+import { chmod, mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises"
 
 import tuiModule, { __testing } from "../dist/tui.js"
 
@@ -236,7 +236,89 @@ test("readSharedConfig rejects non-object top-level JSON", async () => {
   }
 })
 
-test("tui saveSettings persists only the final supported root and host fields", async () => {
+test("readGlobalSettings rejects non-object top-level JSON", async () => {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-invalid-global-config-"))
+  const sharedConfigDir = path.join(homeDir, ".honcho")
+  const configPath = path.join(sharedConfigDir, "config.json")
+  const previousHome = process.env.HOME
+  const previousUserProfile = process.env.USERPROFILE
+
+  await mkdir(sharedConfigDir, { recursive: true })
+  await writeFile(configPath, JSON.stringify(["not-an-object"], null, 2))
+  process.env.HOME = homeDir
+  process.env.USERPROFILE = homeDir
+
+  try {
+    await assert.rejects(
+      __testing.readGlobalSettings(),
+      /must contain a JSON object at the top level/i,
+    )
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
+  }
+})
+
+test("writeSharedConfig atomically writes complete editor config with private permissions", async () => {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-tui-editor-write-"))
+  const sharedConfigDir = path.join(homeDir, ".honcho")
+  const configPath = path.join(sharedConfigDir, "config.json")
+  const previousHome = process.env.HOME
+  const previousUserProfile = process.env.USERPROFILE
+
+  await mkdir(sharedConfigDir, { recursive: true })
+  await writeFile(configPath, JSON.stringify({ old: true }, null, 2))
+  await chmod(configPath, 0o644)
+  process.env.HOME = homeDir
+  process.env.USERPROFILE = homeDir
+
+  try {
+    const settings = {
+      apiKey: "key",
+      baseUrl: "https://api.honcho.dev",
+      peerName: "user",
+      unrelated: "preserve-me",
+      hosts: { opencode: { workspace: "opencode", aiPeer: "opencode", recallMode: "hybrid" } },
+    }
+    assert.equal(await __testing.writeSharedConfig(settings), configPath)
+    const persisted = JSON.parse(await readFile(configPath, "utf-8"))
+
+    assert.equal(persisted.unrelated, "preserve-me")
+    assert.deepEqual(persisted.hosts.opencode, settings.hosts.opencode)
+    assert.equal((await stat(configPath)).mode & 0o777, 0o600)
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
+  }
+})
+
+test("writeSharedConfig repairs permissive config directory permissions", async () => {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-tui-directory-mode-"))
+  const sharedConfigDir = path.join(homeDir, ".honcho")
+  const previousHome = process.env.HOME
+  const previousUserProfile = process.env.USERPROFILE
+
+  await mkdir(sharedConfigDir, { recursive: true })
+  await chmod(sharedConfigDir, 0o777)
+  process.env.HOME = homeDir
+  process.env.USERPROFILE = homeDir
+
+  try {
+    await __testing.writeSharedConfig({ apiKey: "key" })
+    assert.equal((await stat(sharedConfigDir)).mode & 0o777, 0o700)
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
+  }
+})
+
+test("tui saveSettings preserves unrelated fields and private config permissions", async () => {
   const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-tui-clean-fields-"))
   const sharedConfigDir = path.join(homeDir, ".honcho")
   const configPath = path.join(sharedConfigDir, "config.json")
@@ -244,7 +326,9 @@ test("tui saveSettings persists only the final supported root and host fields", 
   const previousUserProfile = process.env.USERPROFILE
 
   await mkdir(sharedConfigDir, { recursive: true })
-  await writeFile(configPath, JSON.stringify({}, null, 2))
+  await writeFile(configPath, JSON.stringify({ unrelated: "preserve-me" }, null, 2))
+  await chmod(configPath, 0o644)
+  await chmod(sharedConfigDir, 0o777)
   process.env.HOME = homeDir
   process.env.USERPROFILE = homeDir
 
@@ -269,6 +353,7 @@ test("tui saveSettings persists only the final supported root and host fields", 
     assert.equal(persisted.apiKey, "key")
     assert.equal(persisted.baseUrl, "https://api.honcho.dev")
     assert.equal(persisted.peerName, "user")
+    assert.equal(persisted.unrelated, "preserve-me")
     assert.equal("enabled" in persisted, false)
     assert.equal("workspace" in persisted, false)
     assert.equal("aiPeer" in persisted, false)
@@ -284,10 +369,40 @@ test("tui saveSettings persists only the final supported root and host fields", 
     assert.equal("enabled" in persisted.hosts.opencode, false)
     assert.equal("peerModel" in persisted.hosts.opencode, false)
     assert.equal("writeFrequency" in persisted.hosts.opencode, false)
+    assert.equal((await stat(configPath)).mode & 0o777, 0o600)
+    assert.equal((await stat(sharedConfigDir)).mode & 0o777, 0o700)
   } finally {
     if (previousHome === undefined) delete process.env.HOME
     else process.env.HOME = previousHome
     if (previousUserProfile === undefined) delete process.env.USERPROFILE
     else process.env.USERPROFILE = previousUserProfile
+  }
+})
+
+test("tui saveSettings rejects malformed and non-object config without changing bytes", async () => {
+  for (const contents of ["{ malformed", '["not-an-object"]\n']) {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-tui-invalid-save-"))
+    const sharedConfigDir = path.join(homeDir, ".honcho")
+    const configPath = path.join(sharedConfigDir, "config.json")
+    const previousHome = process.env.HOME
+    const previousUserProfile = process.env.USERPROFILE
+
+    await mkdir(sharedConfigDir, { recursive: true })
+    await writeFile(configPath, contents)
+    process.env.HOME = homeDir
+    process.env.USERPROFILE = homeDir
+
+    try {
+      await assert.rejects(
+        __testing.saveSettings({ baseUrl: "https://api.honcho.dev" }),
+        /JSON|object/i,
+      )
+      assert.equal(await readFile(configPath, "utf-8"), contents)
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME
+      else process.env.HOME = previousHome
+      if (previousUserProfile === undefined) delete process.env.USERPROFILE
+      else process.env.USERPROFILE = previousUserProfile
+    }
   }
 })

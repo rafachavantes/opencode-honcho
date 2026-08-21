@@ -1,7 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 import type { TuiPlugin, TuiPluginModule } from "@opencode-ai/plugin/tui"
+import { writeJsonFileAtomic } from "./config-file.js"
 
 const PACKAGE_ID = "@rafachavantes/opencode-honcho"
 const DEFAULT_BASE_URL = "https://api.honcho.dev"
@@ -82,7 +83,10 @@ const readGlobalSettings = async (): Promise<GlobalSettings> => {
   try {
     const raw = await readFile(configPath, "utf-8")
     const parsed = JSON.parse(raw)
-    return isRecord(parsed) ? (parsed as GlobalSettings) : {}
+    if (!isRecord(parsed)) {
+      throw new Error(`${configPath} must contain a JSON object at the top level.`)
+    }
+    return parsed as GlobalSettings
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return {}
@@ -110,8 +114,7 @@ const readSharedConfig = async (): Promise<Record<string, unknown> | null> => {
 
 const writeSharedConfig = async (settings: Record<string, unknown>) => {
   const configPath = sharedConfigPath()
-  await mkdir(path.dirname(configPath), { recursive: true })
-  await writeFile(configPath, `${JSON.stringify(settings, null, 2)}\n`, "utf-8")
+  await writeJsonFileAtomic(configPath, settings, true)
   return configPath
 }
 
@@ -188,8 +191,7 @@ const parseSharedConfigValue = (currentValue: unknown, rawValue: string, fieldPa
 
 const writeGlobalSettings = async (settings: GlobalSettings) => {
   const configPath = globalSettingsPath()
-  await mkdir(path.dirname(configPath), { recursive: true })
-  await writeFile(configPath, `${JSON.stringify(settings, null, 2)}\n`, "utf-8")
+  await writeJsonFileAtomic(configPath, settings, true)
   return configPath
 }
 
@@ -632,6 +634,7 @@ export const __testing = {
   deriveLiveStatus,
   normalizeSettings,
   modeEditableFieldPaths,
+  readGlobalSettings,
   readSharedConfig,
   resolveSharedConfigField,
   saveSettings,
@@ -641,6 +644,7 @@ export const __testing = {
   parseSharedConfigValue,
   statusMessage,
   validateCloudApiKey,
+  writeSharedConfig,
 }
 
 export default plugin

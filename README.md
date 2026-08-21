@@ -147,6 +147,8 @@ The plugin exposes these tools inside OpenCode:
 | `honcho_chat` | Query Honcho for reasoning-backed context |
 | `honcho_create_conclusion` | Save a durable memory conclusion |
 
+`honcho_setup` requires `confirm: true` before it resolves, validates, or persists configuration. `honcho_set_config` also requires `confirm: true` for credential and identity/session fields (`apiKey`, `baseUrl`, `workspace`, `peerName`, `aiPeer`, `sessionStrategy`, `sessionNaming`, `sessionPeerPrefix`, and `userPeerPrefix`). Performance fields `recallMode`, `contextScope`, and `sessionStartDialectic` remain direct updates.
+
 ## Plugin Surfaces
 
 The plugin uses these OpenCode plugin capabilities:

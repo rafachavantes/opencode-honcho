@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { existsSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises"
 
 import { createHonchoRuntimePlugin } from "../dist/index.js"
 
@@ -153,7 +153,9 @@ test("honcho_setup writes shared Honcho config with root peerName and hosts.open
     await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
       const hooks = await createPluginHarness(rootDir)
       const honchoSetup = hooks.tool.honcho_setup
-      const result = JSON.parse(await honchoSetup.execute({ apiKey: "new-key", peerName: "custom-peer" }, toolContext(rootDir)))
+      const result = JSON.parse(
+        await honchoSetup.execute({ apiKey: "new-key", peerName: "custom-peer", confirm: true }, toolContext(rootDir)),
+      )
       const persisted = JSON.parse(await readFile(sharedConfigPath, "utf-8"))
 
       expect(result.ok).toBe(true)
@@ -512,7 +514,7 @@ test("honcho_setup returns a structured error when the shared config path cannot
     await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
       const hooks = await createPluginHarness(rootDir)
       const honchoSetup = hooks.tool.honcho_setup
-      const result = JSON.parse(await honchoSetup.execute({ apiKey: "new-key" }, toolContext(rootDir)))
+      const result = JSON.parse(await honchoSetup.execute({ apiKey: "new-key", confirm: true }, toolContext(rootDir)))
 
       expect(result.ok).toBe(false)
       expect(result.error).toMatch(/persist|config|directory|ENOTDIR/i)
@@ -600,7 +602,9 @@ test("honcho_setup returns ok false and does not persist when cloud auth validat
     async () => {
       await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
         const hooks = await createPluginHarness(rootDir)
-        const result = JSON.parse(await hooks.tool.honcho_setup.execute({ apiKey: "bad-key" }, toolContext(rootDir)))
+        const result = JSON.parse(
+          await hooks.tool.honcho_setup.execute({ apiKey: "bad-key", confirm: true }, toolContext(rootDir)),
+        )
         const persisted = JSON.parse(await readFile(sharedConfigPath, "utf-8"))
 
         expect(result.ok).toBe(false)
@@ -629,7 +633,7 @@ test("honcho_setup returns the explicit no-key response for default cloud setup 
       HONCHO_BASE_URL: undefined,
     }, async () => {
       const hooks = await createPluginHarness(rootDir)
-      const result = JSON.parse(await hooks.tool.honcho_setup.execute({}, toolContext(rootDir)))
+      const result = JSON.parse(await hooks.tool.honcho_setup.execute({ confirm: true }, toolContext(rootDir)))
 
       expect(result.ok).toBe(false)
       expect(result.message).toMatch(/No Honcho API key is configured/i)
@@ -657,7 +661,7 @@ test("honcho_setup marks custom self-hosted baseUrl without apiKey as configured
   }, async () => {
     const hooks = await createPluginHarness(rootDir)
     const result = JSON.parse(
-      await hooks.tool.honcho_setup.execute({ baseUrl: "http://honcho.internal:8000" }, toolContext(rootDir)),
+      await hooks.tool.honcho_setup.execute({ baseUrl: "http://honcho.internal:8000", confirm: true }, toolContext(rootDir)),
     )
     const persisted = JSON.parse(await readFile(sharedConfigPath, "utf-8"))
 
@@ -668,6 +672,286 @@ test("honcho_setup marks custom self-hosted baseUrl without apiKey as configured
     expect(persisted.baseUrl).toBe("http://honcho.internal:8000")
     expect(persisted.apiKey).toBeUndefined()
   })
+})
+
+test("honcho_setup requires explicit confirmation before runtime work or persistence", async () => {
+  for (const persistGlobal of [undefined, false]) {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-setup-confirm-"))
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-home-confirm-"))
+    const sharedConfigPath = path.join(homeDir, ".honcho", "config.json")
+    let fetchCalls = 0
+    let logCalls = 0
+
+    await withMockFetch(async () => {
+      fetchCalls += 1
+      throw new Error("fetch should not run")
+    }, async () => {
+      await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
+        const hooks = await createPluginHarness(rootDir, {
+          log: async () => {
+            logCalls += 1
+          },
+        })
+        const result = JSON.parse(
+          await hooks.tool.honcho_setup.execute(
+            { apiKey: "new-key", ...(persistGlobal === undefined ? {} : { persistGlobal }) },
+            toolContext(rootDir),
+          ),
+        )
+
+        expect(result).toMatchObject({
+          ok: false,
+          error: expect.stringMatching(/confirm/i),
+          message: expect.any(String),
+        })
+        expect(fetchCalls).toBe(0)
+        expect(logCalls).toBe(0)
+        expect(existsSync(sharedConfigPath)).toBe(false)
+      })
+    })
+  }
+})
+
+test("honcho_set_config requires confirmation for sensitive fields before runtime work", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-set-confirm-"))
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-home-set-confirm-"))
+  const sharedConfigPath = path.join(homeDir, ".honcho", "config.json")
+  let fetchCalls = 0
+  let logCalls = 0
+
+  await withMockFetch(async () => {
+    fetchCalls += 1
+    throw new Error("fetch should not run")
+  }, async () => {
+    await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
+      const hooks = await createPluginHarness(rootDir, {
+        log: async () => {
+          logCalls += 1
+        },
+      })
+      const result = JSON.parse(
+        await hooks.tool.honcho_set_config.execute(
+          { field: "workspace", value: "new-workspace" },
+          toolContext(rootDir),
+        ),
+      )
+
+      expect(result).toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/confirm/i),
+        message: expect.any(String),
+      })
+      expect(fetchCalls).toBe(0)
+      expect(logCalls).toBe(0)
+      expect(existsSync(sharedConfigPath)).toBe(false)
+    })
+  })
+})
+
+test("honcho_set_config leaves every sensitive field unchanged without confirmation", async () => {
+  const sensitiveFields = [
+    ["apiKey", "replacement-key"],
+    ["baseUrl", "https://honcho.example.test"],
+    ["workspace", "replacement-workspace"],
+    ["peerName", "replacement-peer"],
+    ["aiPeer", "replacement-ai"],
+    ["sessionStrategy", "per-repo"],
+    ["sessionNaming", "shared"],
+    ["sessionPeerPrefix", "false"],
+    ["userPeerPrefix", "false"],
+  ]
+
+  for (const [field, value] of sensitiveFields) {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-sensitive-field-"))
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-home-sensitive-field-"))
+    const sharedConfigDir = path.join(homeDir, ".honcho")
+    const sharedConfigPath = path.join(sharedConfigDir, "config.json")
+    const original = `${JSON.stringify({
+      unrelated: "keep-me",
+      apiKey: "existing-key",
+      peerName: "user",
+      baseUrl: "https://api.honcho.dev",
+      hosts: { opencode: { workspace: "opencode", aiPeer: "opencode" } },
+    }, null, 2)}\n`
+
+    await mkdir(sharedConfigDir, { recursive: true })
+    await writeFile(sharedConfigPath, original)
+
+    await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
+      const hooks = await createPluginHarness(rootDir)
+      const result = JSON.parse(
+        await hooks.tool.honcho_set_config.execute({ field, value }, toolContext(rootDir)),
+      )
+
+      expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/confirm/i) })
+      expect(await readFile(sharedConfigPath, "utf-8")).toBe(original)
+    })
+  }
+})
+
+test("honcho_set_config persists a sensitive field when confirmed", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-confirmed-field-"))
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-home-confirmed-field-"))
+  const sharedConfigDir = path.join(homeDir, ".honcho")
+  const sharedConfigPath = path.join(sharedConfigDir, "config.json")
+
+  await mkdir(sharedConfigDir, { recursive: true })
+  await writeFile(sharedConfigPath, JSON.stringify({ hosts: { opencode: { workspace: "old" } } }, null, 2))
+
+  await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
+    const hooks = await createPluginHarness(rootDir)
+    const result = JSON.parse(
+      await hooks.tool.honcho_set_config.execute(
+        { field: "workspace", value: "new-workspace", confirm: true },
+        toolContext(rootDir),
+      ),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(JSON.parse(await readFile(sharedConfigPath, "utf-8")).hosts.opencode.workspace).toBe("new-workspace")
+  })
+})
+
+test("confirmed setup and set_config repair config permissions", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-config-mode-"))
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-home-config-mode-"))
+  const sharedConfigDir = path.join(homeDir, ".honcho")
+  const sharedConfigPath = path.join(sharedConfigDir, "config.json")
+
+  await mkdir(sharedConfigDir, { recursive: true })
+  await writeFile(
+    sharedConfigPath,
+    JSON.stringify({ apiKey: "existing-key", hosts: { opencode: { workspace: "opencode" } } }, null, 2),
+  )
+
+  await withMockFetch(successfulValidationFetch, async () => {
+    await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
+      const hooks = await createPluginHarness(rootDir)
+      await chmod(sharedConfigPath, 0o644)
+      const setupResult = JSON.parse(
+        await hooks.tool.honcho_setup.execute({ apiKey: "new-key", confirm: true }, toolContext(rootDir)),
+      )
+      expect(setupResult.ok).toBe(true)
+      expect((await stat(sharedConfigPath)).mode & 0o777).toBe(0o600)
+
+      await chmod(sharedConfigPath, 0o644)
+      const configResult = JSON.parse(
+        await hooks.tool.honcho_set_config.execute(
+          { field: "workspace", value: "new-workspace", confirm: true },
+          toolContext(rootDir),
+        ),
+      )
+      expect(configResult.ok).toBe(true)
+      expect((await stat(sharedConfigPath)).mode & 0o777).toBe(0o600)
+    })
+  })
+})
+
+test("confirmed config tools preserve malformed and non-object config bytes", async () => {
+  for (const contents of ["{ malformed", '["not-an-object"]\n']) {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-invalid-config-"))
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-home-invalid-config-"))
+    const sharedConfigDir = path.join(homeDir, ".honcho")
+    const sharedConfigPath = path.join(sharedConfigDir, "config.json")
+
+    await mkdir(sharedConfigDir, { recursive: true })
+    await writeFile(sharedConfigPath, contents)
+
+    await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
+      const hooks = await createPluginHarness(rootDir)
+      const setupResult = JSON.parse(
+        await hooks.tool.honcho_setup.execute({ apiKey: "new-key", confirm: true }, toolContext(rootDir)),
+      )
+      expect(setupResult.ok).toBe(false)
+      expect(setupResult.error).toMatch(/JSON|object/i)
+      expect(await readFile(sharedConfigPath, "utf-8")).toBe(contents)
+
+      await expect(
+        hooks.tool.honcho_set_config.execute(
+          { field: "workspace", value: "new-workspace", confirm: true },
+          toolContext(rootDir),
+        ),
+      ).rejects.toThrow(/JSON|object/i)
+      expect(await readFile(sharedConfigPath, "utf-8")).toBe(contents)
+    })
+  }
+})
+
+test("set_config repairs restrictive config directory permissions before atomic replacement", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-atomic-write-"))
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-home-atomic-write-"))
+  const sharedConfigDir = path.join(homeDir, ".honcho")
+  const sharedConfigPath = path.join(sharedConfigDir, "config.json")
+
+  await mkdir(sharedConfigDir, { recursive: true })
+  await writeFile(sharedConfigPath, JSON.stringify({ hosts: { opencode: { workspace: "old" } } }, null, 2))
+  await chmod(sharedConfigDir, 0o500)
+
+  try {
+    await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
+      const hooks = await createPluginHarness(rootDir)
+      const result = JSON.parse(
+        await hooks.tool.honcho_set_config.execute(
+          { field: "workspace", value: "new-workspace", confirm: true },
+          toolContext(rootDir),
+        ),
+      )
+      expect(result.ok).toBe(true)
+      expect((await stat(sharedConfigDir)).mode & 0o777).toBe(0o700)
+      expect(JSON.parse(await readFile(sharedConfigPath, "utf-8")).hosts.opencode.workspace).toBe("new-workspace")
+    })
+  } finally {
+    await chmod(sharedConfigDir, 0o700)
+  }
+})
+
+test("set_config leaves a non-shared config override directory permissions unchanged", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-override-mode-"))
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-home-override-mode-"))
+  const configDirectory = await mkdtemp(path.join(os.tmpdir(), "honcho-config-override-mode-"))
+  const configPath = path.join(configDirectory, "config.json")
+
+  await writeFile(configPath, JSON.stringify({ hosts: { opencode: { workspace: "old" } } }, null, 2))
+  await chmod(configDirectory, 0o777)
+
+  await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
+    const hooks = await createPluginHarness(rootDir, { configPath })
+    const result = JSON.parse(
+      await hooks.tool.honcho_set_config.execute(
+        { field: "workspace", value: "new-workspace", confirm: true },
+        toolContext(rootDir),
+      ),
+    )
+
+    expect(result.ok).toBe(true)
+    expect((await stat(configDirectory)).mode & 0o777).toBe(0o777)
+  })
+})
+
+test("set_config preserves a config override when the temporary write fails", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "honcho-override-atomic-"))
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "honcho-home-override-atomic-"))
+  const configDirectory = await mkdtemp(path.join(os.tmpdir(), "honcho-config-override-atomic-"))
+  const configPath = path.join(configDirectory, "config.json")
+  const original = `${JSON.stringify({ hosts: { opencode: { workspace: "old" } } }, null, 2)}\n`
+
+  await writeFile(configPath, original)
+  await chmod(configDirectory, 0o500)
+
+  try {
+    await withEnv({ HOME: homeDir, USER: "ignored-user", XDG_CONFIG_HOME: undefined }, async () => {
+      const hooks = await createPluginHarness(rootDir, { configPath })
+      await expect(
+        hooks.tool.honcho_set_config.execute(
+          { field: "workspace", value: "new-workspace", confirm: true },
+          toolContext(rootDir),
+        ),
+      ).rejects.toThrow()
+      expect(await readFile(configPath, "utf-8")).toBe(original)
+    })
+  } finally {
+    await chmod(configDirectory, 0o700)
+  }
 })
 
 test("honcho_status defaults workspace to opencode instead of the OpenCode project id", async () => {

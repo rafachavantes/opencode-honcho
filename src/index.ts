@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { tool, type Plugin, type PluginInput } from "@opencode-ai/plugin"
 import { Honcho } from "@honcho-ai/sdk"
+import { writeJsonFileAtomic } from "./config-file.js"
 
 type RecallMode = "hybrid" | "context" | "tools"
 type ContextScope = "global" | "session"
@@ -163,6 +164,18 @@ const SETTING_FIELD_PATHS = new Set([
   "userPeerPrefix",
   "sessionNaming",
   "sessionPeerPrefix",
+])
+
+const SENSITIVE_SETTING_FIELDS = new Set([
+  "apiKey",
+  "baseUrl",
+  "workspace",
+  "peerName",
+  "aiPeer",
+  "sessionStrategy",
+  "sessionNaming",
+  "sessionPeerPrefix",
+  "userPeerPrefix",
 ])
 
 const STATUS_FIELDS = [
@@ -688,9 +701,16 @@ const sharedGlobalSettingsPath = () => {
   return path.join(userHomeDir(), SHARED_SETTINGS_DIR_NAME, SHARED_SETTINGS_FILE_NAME)
 }
 
+const isSharedGlobalSettingsPath = (configPath: string) =>
+  path.resolve(configPath) === path.resolve(sharedGlobalSettingsPath())
+
 const readJsonFile = async (configPath: string) => {
   try {
-    return JSON.parse(await readFile(configPath, "utf-8")) as Record<string, unknown>
+    const parsed = JSON.parse(await readFile(configPath, "utf-8"))
+    if (!isRecord(parsed)) {
+      throw new Error(`${configPath} must contain a JSON object at the top level.`)
+    }
+    return parsed
   } catch (error) {
     if (isRecord(error) && error.code === "ENOENT") {
       return null
@@ -723,8 +743,7 @@ const writeSettings = async (
   configPath: string,
   settings: Record<string, unknown>,
 ) => {
-  await mkdir(path.dirname(configPath), { recursive: true })
-  await writeFile(configPath, `${JSON.stringify(settings, null, 2)}\n`, "utf-8")
+  await writeJsonFileAtomic(configPath, settings, isSharedGlobalSettingsPath(configPath))
 }
 
 const currentUserName = () => process.env.USER || process.env.USERNAME || "user"
@@ -753,8 +772,7 @@ const writeSharedGlobalSettings = async (configPath: string, settings: Record<st
   } else {
     delete next[LEGACY_API_KEY_FIELD]
   }
-  await mkdir(path.dirname(configPath), { recursive: true })
-  await writeFile(configPath, `${JSON.stringify(next, null, 2)}\n`, "utf-8")
+  await writeJsonFileAtomic(configPath, next, isSharedGlobalSettingsPath(configPath))
 }
 
 const ensureSharedGlobalSettings = async (configPath = sharedGlobalSettingsPath()) => {
@@ -1622,8 +1640,20 @@ export const createHonchoRuntimePlugin =
             baseUrl: tool.schema.string().optional(),
             peerName: tool.schema.string().optional(),
             persistGlobal: tool.schema.boolean().optional(),
+            confirm: tool.schema.boolean().optional(),
           },
           async execute(args, context) {
+            if (args.confirm !== true) {
+              return JSON.stringify(
+                {
+                  ok: false,
+                  error: "Confirmation is required before Honcho setup can resolve or persist settings.",
+                  message: "Retry honcho_setup with confirm: true to validate or save configuration.",
+                },
+                null,
+                2,
+              )
+            }
             let resolvedGlobalConfigPath = sharedGlobalSettingsPath()
             try {
               const handle = await deriveRuntimeHandle(pluginInput, { sessionID: context.sessionID }, configPath)
@@ -1726,7 +1756,6 @@ export const createHonchoRuntimePlugin =
             confirm: tool.schema.boolean().optional(),
           },
           async execute(args, context) {
-            const handle = await deriveRuntimeHandle(pluginInput, { sessionID: context.sessionID }, configPath)
             let field: string
             try {
               field = parseSettingField(args.field)
@@ -1737,9 +1766,21 @@ export const createHonchoRuntimePlugin =
                 2,
               )
             }
+            if (SENSITIVE_SETTING_FIELDS.has(field) && args.confirm !== true) {
+              return JSON.stringify(
+                {
+                  ok: false,
+                  error: `Confirmation is required before changing sensitive setting '${field}'.`,
+                  message: "Retry honcho_set_config with confirm: true to persist this setting.",
+                },
+                null,
+                2,
+              )
+            }
+            const handle = await deriveRuntimeHandle(pluginInput, { sessionID: context.sessionID }, configPath)
+            const nextValue = parseSettingValue(field, args.value)
             const persisted = await readConfigFile(handle.configPath)
             const nextPersisted = { ...persisted }
-            const nextValue = parseSettingValue(field, args.value)
             setSettingValue(nextPersisted, field, nextValue)
             await writeSettings(handle.configPath, nextPersisted)
             runtimeCache.evictAll()
