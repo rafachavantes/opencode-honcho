@@ -1,6 +1,6 @@
 {
   "name": "@rafachavantes/opencode-honcho",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Honcho memory integration for OpenCode (fork: scoped context, runtime cache, cross-host parity)",
   "license": "MIT",

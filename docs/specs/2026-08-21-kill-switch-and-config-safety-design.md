@@ -1,7 +1,7 @@
 # Design — one-shot kill switch and safe configuration writes
 
 **Date:** 2026-08-21  
-**Status:** Approved design; awaiting maintainer review before implementation planning.
+**Status:** Implemented and verified.
 
 ## Goal
 
@@ -77,7 +77,7 @@ reader must validate that parsed JSON is an object before setup or native
 configuration writes use it. A malformed or non-object JSON config is rejected
 and is never overwritten.
 
-The TUI's explicit field selection and confirmation dialog remain its consent
+The TUI's explicit field-selection or value-prompt action is its consent
 mechanism; this stage does not add a second UI confirmation screen.
 
 ## Design choices

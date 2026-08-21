@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Add a one-shot `HONCHO_ENABLED` kill switch for the runtime and TUI.
+- Require explicit confirmation for sensitive native configuration changes.
+- Write shared configuration atomically with private file and directory permissions.
+
 ## 0.1.2
 
 - Allow self-hosted and localhost Honcho setups to run without a Honcho API key.
